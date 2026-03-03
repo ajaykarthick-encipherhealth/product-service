@@ -1,0 +1,10 @@
+spring:
+  data:
+    mongodb:
+      uri:  mongodb://admin:Tharun%402001@20.207.201.182:27017,20.207.201.182:27018,20.207.201.182:27019/productService?replicaSet=rs0&authSource=admin
+      auto-index-creation: true
+      database: productService
+  application:
+    name: product-service
+  profiles:
+    active: default
