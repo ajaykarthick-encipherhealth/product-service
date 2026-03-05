@@ -1,5 +1,6 @@
 package com.beetloop.product.rfq.service;
 
+import com.beetloop.product.rfq.dto.ApprovalChainRequestDTO;
 import com.beetloop.product.rfq.dto.NegotiationMessageDTO;
 import com.beetloop.product.rfq.dto.QuoteDTO;
 import com.beetloop.product.rfq.dto.QuoteRequestDTO;
@@ -16,6 +17,15 @@ public interface QuoteActionService {
     QuoteDTO patchQuote(String quoteId, String vendorId, QuoteRequestDTO request);
 
     QuoteDTO getQuote(String quoteId);
+
+    /** List all quotes for an RFQ (e.g. for Vendor Quote Comparison screen). */
+    List<QuoteDTO> listQuotesByRfqId(String rfqId);
+
+    /** Buyer selects a quote for internal approval (quote → SELECTED, RFQ → PENDING_APPROVAL). */
+    QuoteDTO selectQuoteForApproval(String quoteId, String buyerId, ApprovalChainRequestDTO approvalChainRequest);
+
+    /** After all approvals are in, buyer finalizes order (quote → ACCEPTED, RFQ → AWARDED). */
+    QuoteDTO finalizeOrder(String rfqId, String buyerId);
 
     QuoteDTO acceptQuote(String quoteId, String buyerId);
 

@@ -1,5 +1,6 @@
 package com.beetloop.product.rfq.service;
 
+import com.beetloop.product.rfq.dto.ApprovalChainRequestDTO;
 import com.beetloop.product.rfq.dto.NegotiationMessageDTO;
 import com.beetloop.product.rfq.dto.QuoteDTO;
 import com.beetloop.product.rfq.dto.QuoteRequestDTO;
@@ -8,6 +9,7 @@ import com.beetloop.product.rfq.enums.NegotiationRole;
 import com.beetloop.product.rfq.enums.QuoteStatus;
 import com.beetloop.product.rfq.enums.RfqInviteStatus;
 import com.beetloop.product.rfq.enums.RfqStatus;
+import com.beetloop.product.rfq.service.ApprovalService;
 import com.beetloop.product.rfq.exception.ForbiddenException;
 import com.beetloop.product.rfq.exception.QuoteActionException;
 import com.beetloop.product.rfq.mapper.NegotiationMessageMapper;
@@ -31,6 +33,7 @@ public class QuoteActionServiceImpl implements QuoteActionService {
     private final NegotiationMessageRepository negotiationMessageRepository;
     private final QuoteMapper quoteMapper;
     private final NegotiationMessageMapper negotiationMessageMapper;
+    private final ApprovalService approvalService;
 
     @Override
     @Transactional
@@ -138,6 +141,65 @@ public class QuoteActionServiceImpl implements QuoteActionService {
     }
 
     @Override
+    public List<QuoteDTO> listQuotesByRfqId(String rfqId) {
+        return quoteRepository.findByRfqId(rfqId).stream()
+                .map(quoteMapper::toDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public QuoteDTO selectQuoteForApproval(String quoteId, String buyerId, ApprovalChainRequestDTO approvalChainRequest) {
+        QuoteEntity quote = quoteRepository.findById(quoteId)
+                .orElseThrow(() -> new QuoteActionException("Quote not found: " + quoteId));
+        LeadEntity rfq = rfqRepository.findById(quote.getRfqId())
+                .orElseThrow(() -> new QuoteActionException("RFQ not found: " + quote.getRfqId()));
+        if (!rfq.getBuyerId().equals(buyerId)) {
+            throw new ForbiddenException("Only the RFQ buyer can select a quote for approval");
+        }
+        if (rfq.getStatus() == RfqStatus.AWARDED) {
+            throw new QuoteActionException("RFQ is already awarded");
+        }
+        if (quote.getStatus() != QuoteStatus.SUBMITTED && quote.getStatus() != QuoteStatus.UNDER_NEGOTIATION) {
+            throw new QuoteActionException("Quote must be submitted or under negotiation to be selected for approval");
+        }
+        if (approvalChainRequest == null || approvalChainRequest.getSteps() == null || approvalChainRequest.getSteps().isEmpty()) {
+            throw new QuoteActionException("Approval chain steps are required when selecting a quote for approval");
+        }
+        Instant now = Instant.now();
+        quote.setStatus(QuoteStatus.SELECTED);
+        quote.setUpdatedAt(now);
+        quoteRepository.save(quote);
+        rfq.setSelectedQuoteId(quoteId);
+        rfq.setStatus(RfqStatus.PENDING_APPROVAL);
+        rfq.setUpdatedAt(now);
+        rfqRepository.save(rfq);
+        approvalService.createChain(rfq.getId(), quoteId, approvalChainRequest);
+        return quoteMapper.toDto(quote);
+    }
+
+    @Override
+    @Transactional
+    public QuoteDTO finalizeOrder(String rfqId, String buyerId) {
+        LeadEntity rfq = rfqRepository.findById(rfqId)
+                .orElseThrow(() -> new QuoteActionException("RFQ not found: " + rfqId));
+        if (!rfq.getBuyerId().equals(buyerId)) {
+            throw new ForbiddenException("Only the RFQ buyer can finalize the order");
+        }
+        if (rfq.getStatus() != RfqStatus.PENDING_APPROVAL) {
+            throw new QuoteActionException("RFQ must be in PENDING_APPROVAL to finalize; current status: " + rfq.getStatus());
+        }
+        String selectedQuoteId = rfq.getSelectedQuoteId();
+        if (selectedQuoteId == null || selectedQuoteId.isBlank()) {
+            throw new QuoteActionException("No quote selected for this RFQ");
+        }
+        if (!approvalService.isFullyApproved(rfqId)) {
+            throw new QuoteActionException("All approval steps must be completed before finalizing the order");
+        }
+        return acceptQuote(selectedQuoteId, buyerId);
+    }
+
+    @Override
     @Transactional
     public QuoteDTO acceptQuote(String quoteId, String buyerId) {
         QuoteEntity quote = quoteRepository.findById(quoteId)
@@ -152,8 +214,8 @@ public class QuoteActionServiceImpl implements QuoteActionService {
         if (rfq.getStatus() == RfqStatus.AWARDED) {
             throw new QuoteActionException("RFQ is already awarded");
         }
-        if (quote.getStatus() != QuoteStatus.SUBMITTED && quote.getStatus() != QuoteStatus.UNDER_NEGOTIATION) {
-            throw new QuoteActionException("Quote must be submitted or under negotiation to be accepted");
+        if (quote.getStatus() != QuoteStatus.SUBMITTED && quote.getStatus() != QuoteStatus.UNDER_NEGOTIATION && quote.getStatus() != QuoteStatus.SELECTED) {
+            throw new QuoteActionException("Quote must be submitted, under negotiation, or selected (post-approval) to be accepted");
         }
 
         quote.setStatus(QuoteStatus.ACCEPTED);

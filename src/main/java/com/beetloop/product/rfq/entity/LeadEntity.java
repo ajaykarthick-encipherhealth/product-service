@@ -24,6 +24,9 @@ public class LeadEntity {
     private CommercialTermsDTO commercialTerms;
     private SupplierCriteriaDTO supplierCriteria;
 
+    /** Quote id selected by buyer for internal approval (before finalize order). */
+    private String selectedQuoteId;
+
     private Instant invitedAt;
     private Instant respondedAt;
     @LastModifiedDate

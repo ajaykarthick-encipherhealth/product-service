@@ -1,5 +1,6 @@
 package com.beetloop.product.rfq.controller;
 
+import com.beetloop.product.rfq.dto.ApprovalChainRequestDTO;
 import com.beetloop.product.rfq.dto.NegotiateQuoteRequestDTO;
 import com.beetloop.product.rfq.dto.NegotiationMessageDTO;
 import com.beetloop.product.rfq.dto.QuoteDTO;
@@ -22,6 +23,16 @@ public class QuoteController {
 
     private final QuoteActionService quoteActionService;
 
+    /** Create or update draft quote (one-by-one submission). Body can be partial. */
+    @PostMapping("/createdQuoteBy/{vendorId}/forRfq/{rfqId}")
+    public ResponseEntity<QuoteDTO> createQuote(
+            @PathVariable String vendorId,
+            @PathVariable String rfqId,
+            @RequestBody(required = false) QuoteRequestDTO request) {
+        QuoteDTO result = quoteActionService.createQuote(vendorId, rfqId, request != null ? request : new QuoteRequestDTO());
+        return ResponseEntity.status(HttpStatus.CREATED).body(result);
+    }
+
     /** Finalize draft quote (DRAFT → SUBMITTED). */
     @PostMapping("/{quoteId}/submit")
     public ResponseEntity<QuoteDTO> submitQuote(
@@ -37,6 +48,12 @@ public class QuoteController {
         return ResponseEntity.ok(quoteActionService.getQuote(quoteId));
     }
 
+    /** List all quotes for an RFQ (Vendor Quote Comparison). */
+    @GetMapping
+    public ResponseEntity<List<QuoteDTO>> listQuotesByRfqId(@RequestParam String rfqId) {
+        return ResponseEntity.ok(quoteActionService.listQuotesByRfqId(rfqId));
+    }
+
     /** Patch draft quote with partial data. Only non-null fields in body are applied. X-Vendor-Id required. */
     @PatchMapping("/{quoteId}")
     public ResponseEntity<QuoteDTO> patchQuote(
@@ -47,7 +64,17 @@ public class QuoteController {
         return ResponseEntity.ok(result);
     }
 
-    /** Buyer accepts a quote. X-Buyer-Id header required. */
+    /** Buyer selects a quote for internal approval (moves to Internal Approvals screen). X-Buyer-Id and approval steps required. */
+    @PostMapping("/{quoteId}/select-for-approval")
+    public ResponseEntity<QuoteDTO> selectQuoteForApproval(
+            @PathVariable String quoteId,
+            @RequestHeader("X-Buyer-Id") String buyerId,
+            @RequestBody @Valid ApprovalChainRequestDTO approvalChainRequest) {
+        QuoteDTO result = quoteActionService.selectQuoteForApproval(quoteId, buyerId, approvalChainRequest);
+        return ResponseEntity.ok(result);
+    }
+
+    /** Buyer accepts a quote (direct accept without approval chain, or after finalize). X-Buyer-Id header required. */
     @PostMapping("/{quoteId}/accept")
     public ResponseEntity<QuoteDTO> acceptQuote(
             @PathVariable String quoteId,
